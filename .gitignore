@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+data/prices_cache.csv
+data/normalized_transactions.csv
+data/holdings.csv
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,62 @@
+---
+description: Portfolio Tracker project standards and implementation requirements
+alwaysApply: true
+---
+
+# Portfolio Tracker — Cursor Rules
+
+## Project Overview
+This is a personal multi-asset portfolio tracking tool built in Python.
+It processes trade transactions (stocks, ETFs, FDs, money market funds)
+and produces daily holdings, NAV, performance analytics, P&L,
+dividend tracking and etc.
+
+## Architecture
+- Modular pipeline: each tool is a standalone Python module in `tools/`
+- Each tool has a clear contract: CSV/DataFrame in -> CSV/DataFrame out
+- Tools are orchestrated by `pipeline.py`
+- UI layer (Streamlit) is separate from business logic
+
+## Tech Stack
+- Python 3.11+
+- pandas for all data manipulation
+- IBKR API for market data
+- Streamlit for UI (later phase)
+- pytest for testing
+
+## Coding Conventions
+- Use type hints on all function signatures
+- Every public function must have a docstring
+- Use pathlib.Path, not string paths
+- Date handling: use datetime.date, not strings, internally
+- All money values are Decimal or float with explicit rounding
+- Column naming: snake_case (e.g., avg_cost, market_value)
+- Never print() in library code; use logging module
+- Each tool module must expose one main function as its entry point
+
+## Data Conventions
+- Multi currency: HKD, USD, GBP and etc.
+- Asset types: Stocks, Bonds, PE, Cash and etc.
+- Order Type: BUY, SELL, DIVIDEND, INTEREST, FD_PURCHASE, FD_MATURITY, FUND_BUY, FUND_SELL, CASH_IN, CASH_OUT, FEE
+- Asset classes: HK_STOCK, US_STOCK, FIXED_DEPOSIT, LIQUIDITY_FUND, MONEY_MARKET_FUND, CASH
+
+## File Locations
+- Raw input: data/*.csv
+- Tool outputs: data/*.csv
+- Price cache: data/prices_cache.csv
+- Each tool reads from and writes to the data/ folder
+
+## Testing
+- Every tool must have corresponding tests in tests/
+- Test with small, hand-crafted DataFrames (3-5 rows)
+- Always verify: does the output row count make sense? Do the numbers add up?
+
+## IMPORTANT
+- When I say "build Tool X", implement the full module with:
+  1. Main function
+  2. Helper functions
+  3. CSV read/write
+  4. Basic error handling
+  5. A small example/test at the bottom in if __name__ == "__main__"
+- Do NOT use placeholder/stub code. Write real, working implementations.
+- When modifying existing code, show the COMPLETE file.

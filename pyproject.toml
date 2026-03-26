@@ -1,0 +1,17 @@
+[project]
+name = "portfolio-tracker"
+version = "0.1.0"
+description = "Personal multi-asset portfolio tracking pipeline."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "ib_async",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
