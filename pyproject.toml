@@ -5,6 +5,7 @@ description = "Personal multi-asset portfolio tracking pipeline."
 requires-python = ">=3.11"
 dependencies = [
     "pandas",
+    "scipy",
     "ib_async",
     "yfinance",
 ]

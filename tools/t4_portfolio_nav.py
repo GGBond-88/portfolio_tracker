@@ -31,7 +31,7 @@ def build_portfolio_nav(
     output_path: Path,
     portfolio_filter: str | None = "FGI",
     asset_class_filter: str | None = "Equities",
-    scope: str = "fgi_equities",
+    scope: str = "equity_sub",
 ) -> pd.DataFrame:
     """Build daily portfolio NAV summary from USD-priced holdings."""
     _ = data_dir  # Keep interface consistent with other tool modules.
@@ -95,7 +95,7 @@ def build_portfolio_nav(
         .reset_index(drop=True)
     )
 
-    grouped["scope"] = str(scope).strip() or "fgi_equities"
+    grouped["scope"] = str(scope).strip() or "equity_sub"
     for value_column in [
         "total_market_value_usd",
         "total_cost_basis_usd",
@@ -163,5 +163,5 @@ if __name__ == "__main__":
         output_path=Path("data/portfolio_nav.csv"),
         portfolio_filter="FGI",
         asset_class_filter="Equities",
-        scope="fgi_equities",
+        scope="equity_sub",
     )

@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Personal multi-asset portfolio tracking pipeline.
 Requires-Python: >=3.11
 Requires-Dist: pandas
+Requires-Dist: scipy
 Requires-Dist: ib_async
 Requires-Dist: yfinance
 Provides-Extra: dev

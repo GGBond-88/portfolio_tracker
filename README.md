@@ -31,6 +31,7 @@ The pipeline currently runs these tools in sequence:
 4. `t3`: fetch daily FX rates and convert priced holdings into USD
 5. `t4`: aggregate daily portfolio NAV summary (currently FGI + Equities scope)
 6. `t5`: build transaction-level portfolio cash flows (currently FGI equity BUY/SELL scope)
+7. `t6`: calculate portfolio returns (daily TWR + period returns + annualized IRR)
 
 ## Project Structure
 
@@ -48,10 +49,12 @@ The pipeline currently runs these tools in sequence:
   Aggregates daily portfolio-level NAV summary and demo daily return
 - `tools/t5_cash_flow_builder.py`
   Builds signed transaction-level cash flow rows from standardized tradelist + FX cache
+- `tools/t6_return_calculator.py`
+  Calculates return series from NAV + cash flows (TWR and annualized MWR/IRR)
 - `tests/`
   Pytest test suite for the tool modules
 - `pipeline.py`
-  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4 -> t5`
+  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4 -> t5 -> t6`
 
 ## Input Files
 
@@ -241,6 +244,39 @@ FX conversion notes:
 - rates are forward-filled by date when transaction date is a non-trading day
 - USD transactions always use `fx_rate_to_usd = 1.0`
 
+### `data/portfolio_returns.csv`
+
+Output of Tool 6.
+
+This table combines `portfolio_nav.csv` and `portfolio_cash_flows.csv` to produce daily TWR, period-to-date returns, and full-period annualized MWR/IRR.
+
+Current default scope in pipeline:
+
+- `portfolio = FGI`
+- `scope = equity_sub`
+
+Important columns:
+
+- `date`
+- `portfolio`
+- `scope`
+- `nav_usd`
+- `daily_net_cf_usd`
+- `daily_return_twr`
+- `cumulative_twr`
+- `mtd_return`
+- `qtd_return`
+- `ytd_return`
+- `itd_return`
+- `irr_annualized`
+
+Method notes:
+
+- daily TWR uses a modified-Dietz style sub-period formula with start-of-day cash flow handling
+- `daily_net_cf_usd` is summed by date from transaction-level cash flow rows
+- `itd_return` equals `cumulative_twr`
+- `irr_annualized` is full-period (inception-to-date) IRR solved from timed cash flows and annualized with `(1 + daily_irr)^365 - 1`
+
 ## Installation
 
 Recommended Python version:
@@ -274,6 +310,7 @@ This runs:
 4. `t3`
 5. `t4`
 6. `t5`
+7. `t6`
 
 ### Run tools individually
 
@@ -284,6 +321,7 @@ python -m tools.t2_price_fetcher
 python -m tools.t3_fx_converter
 python -m tools.t4_portfolio_nav
 python -m tools.t5_cash_flow_builder
+python -m tools.t6_return_calculator
 ```
 
 ## How To Test
@@ -305,14 +343,16 @@ Current tests cover:
 - portfolio NAV aggregation with configurable scope filters
 - demo daily return calculation on portfolio NAV
 - equity BUY/SELL cash flow extraction and FX conversion into USD
+- portfolio return calculations (TWR period series + annualized IRR)
 
 ## Current Known Limitations
 
 - Some Yahoo tickers still require manual override entries in `data/ticker_overrides.csv`
 - Yahoo Finance may not provide prices for every instrument, warrant, or delisted security
 - Tool 1 currently focuses on equity holdings replay, not full multi-asset portfolio accounting
-- Portfolio-level return calculations such as IRR, MWR, and TWR are not built yet
+- Tool 6 provides first-cut TWR and annualized IRR, but currently only for the filtered NAV + equity BUY/SELL cash flow scope
 - Tool 5 currently builds only equity BUY/SELL transaction cash flows (not yet external deposits, withdrawals, dividends, fees, FD, PE, or full multi-asset scope)
+- Return calculations currently focus on NAV + equity BUY/SELL cash flows for a filtered scope (default `FGI` + `equity_sub`)
 - The current storage layer is CSV-first; SQLite and BI-ready summary tables are still pending
 
 ## Suggested Next Steps
@@ -320,7 +360,7 @@ Current tests cover:
 Recommended next development stages:
 
 1. Extend the cash flow layer beyond equity BUY/SELL (deposits, withdrawals, dividends, fees, FD, PE, and other asset classes)
-2. Build portfolio-level MWR / IRR and TWR, starting with `Portfolio = FGI` and `Asset class = Equities`
+2. Extend return calculations beyond the current filtered equity sub-scope to full portfolio accounting
 3. Add SQLite export while still preserving CSV outputs for manual inspection
 4. Build BI-friendly summary tables for Power BI
 

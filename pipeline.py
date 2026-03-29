@@ -1,4 +1,4 @@
-"""Pipeline entry point to run Tool 0 through Tool 5 in sequence."""
+"""Pipeline entry point to run Tool 0 through Tool 6 in sequence."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ from tools.t2_price_fetcher import build_priced_holdings
 from tools.t3_fx_converter import build_fx_converted_holdings
 from tools.t4_portfolio_nav import build_portfolio_nav
 from tools.t5_cash_flow_builder import build_cash_flows
+from tools.t6_return_calculator import build_portfolio_returns
 
 LOGGER = logging.getLogger(__name__)
 
 
 def run_pipeline(data_dir: Path) -> dict[str, pd.DataFrame]:
-    """Run t0, t1, t2, t3, t4, and t5 sequentially and return output DataFrames."""
+    """Run t0, t1, t2, t3, t4, t5, and t6 sequentially and return output DataFrames."""
     data_dir = data_dir.resolve()
     LOGGER.info("Running portfolio tracker pipeline in %s", data_dir)
 
@@ -48,13 +49,22 @@ def run_pipeline(data_dir: Path) -> dict[str, pd.DataFrame]:
         output_path=data_dir / "portfolio_nav.csv",
         portfolio_filter="FGI",
         asset_class_filter="Equities",
-        scope="fgi_equities",
+        scope="equity_sub",
     )
     portfolio_cash_flows = build_cash_flows(
         data_dir=data_dir,
         tradelist_path=data_dir / "t0_standardized_tradelist.csv",
         fx_cache_path=data_dir / "fx_cache.csv",
         output_path=data_dir / "portfolio_cash_flows.csv",
+        portfolio_filter="FGI",
+        asset_class_filter="Equities",
+        scope="equity_sub",
+    )
+    portfolio_returns = build_portfolio_returns(
+        data_dir=data_dir,
+        nav_path=data_dir / "portfolio_nav.csv",
+        cash_flows_path=data_dir / "portfolio_cash_flows.csv",
+        output_path=data_dir / "portfolio_returns.csv",
         portfolio_filter="FGI",
         scope="equity_sub",
     )
@@ -66,6 +76,7 @@ def run_pipeline(data_dir: Path) -> dict[str, pd.DataFrame]:
     LOGGER.info("t3 rows: %s", len(priced_holdings_usd))
     LOGGER.info("t4 rows: %s", len(portfolio_nav))
     LOGGER.info("t5 rows: %s", len(portfolio_cash_flows))
+    LOGGER.info("t6 rows: %s", len(portfolio_returns))
 
     return {
         "t0_standardized_tradelist": standardized_tradelist,
@@ -74,6 +85,7 @@ def run_pipeline(data_dir: Path) -> dict[str, pd.DataFrame]:
         "t3_priced_holdings_usd": priced_holdings_usd,
         "t4_portfolio_nav": portfolio_nav,
         "t5_portfolio_cash_flows": portfolio_cash_flows,
+        "t6_portfolio_returns": portfolio_returns,
     }
 
 

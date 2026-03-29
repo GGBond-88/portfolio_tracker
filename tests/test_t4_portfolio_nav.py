@@ -84,7 +84,7 @@ def test_build_portfolio_nav_default_filters_fgi_equities(tmp_path: Path) -> Non
     assert output_path.exists()
     assert len(nav_df) == 2
     assert set(nav_df["portfolio"].tolist()) == {"FGI"}
-    assert set(nav_df["scope"].tolist()) == {"fgi_equities"}
+    assert set(nav_df["scope"].tolist()) == {"equity_sub"}
 
     day_1 = nav_df[nav_df["date"] == _d(-2)].iloc[0]
     assert int(day_1["position_count"]) == 2

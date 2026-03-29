@@ -45,6 +45,7 @@ def build_cash_flows(
     fx_cache_path: Path,
     output_path: Path,
     portfolio_filter: str | None = "FGI",
+    asset_class_filter: str | None = "Equities",
     scope: str = "equity_sub",
 ) -> pd.DataFrame:
     """Build signed transaction-level cash flows for equity BUY/SELL rows."""
@@ -73,6 +74,11 @@ def build_cash_flows(
     if portfolio_filter is not None:
         normalized_portfolio = str(portfolio_filter).strip().casefold()
         cash_df = cash_df[cash_df["Portfolio"].str.casefold() == normalized_portfolio].copy()
+    if asset_class_filter is not None:
+        normalized_asset_class = str(asset_class_filter).strip().casefold()
+        cash_df = cash_df[
+            cash_df["Asset class"].fillna("").astype(str).str.strip().str.casefold() == normalized_asset_class
+        ].copy()
 
     if cash_df.empty:
         empty_df = pd.DataFrame(columns=_OUTPUT_COLUMNS)
@@ -218,5 +224,6 @@ if __name__ == "__main__":
         fx_cache_path=Path("data/fx_cache.csv"),
         output_path=Path("data/portfolio_cash_flows.csv"),
         portfolio_filter="FGI",
+        asset_class_filter="Equities",
         scope="equity_sub",
     )

@@ -142,11 +142,7 @@ def test_build_cash_flows_excludes_non_equity_rows(tmp_path: Path) -> None:
         output_path=output_path,
     )
 
-    assert len(output_df) == 1
-    row = output_df.iloc[0]
-    assert row["ticker"] == "WJG"
-    assert row["asset_class"] == "PE"
-    assert row["cf_type"] == "BUY"
+    assert len(output_df) == 0
 
 
 def test_build_cash_flows_hkd_uses_forward_filled_fx(tmp_path: Path) -> None:

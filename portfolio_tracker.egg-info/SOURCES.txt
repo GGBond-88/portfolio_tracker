@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 portfolio_tracker.egg-info/PKG-INFO
 portfolio_tracker.egg-info/SOURCES.txt
@@ -7,3 +8,7 @@ portfolio_tracker.egg-info/top_level.txt
 tests/test_t0_tradelist_standardizer.py
 tests/test_t1_holdings_builder.py
 tests/test_t2_price_fetcher.py
+tests/test_t3_fx_converter.py
+tests/test_t4_portfolio_nav.py
+tests/test_t5_cash_flow_builder.py
+tests/test_t6_return_calculator.py
