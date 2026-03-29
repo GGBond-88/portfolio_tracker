@@ -30,6 +30,7 @@ The pipeline currently runs these tools in sequence:
 3. `t2`: fetch market prices and calculate market value / unrealized P&L / total P&L
 4. `t3`: fetch daily FX rates and convert priced holdings into USD
 5. `t4`: aggregate daily portfolio NAV summary (currently FGI + Equities scope)
+6. `t5`: build transaction-level portfolio cash flows (currently FGI equity BUY/SELL scope)
 
 ## Project Structure
 
@@ -45,10 +46,12 @@ The pipeline currently runs these tools in sequence:
   Fetches daily FX rates and creates USD-valued priced holdings
 - `tools/t4_portfolio_nav.py`
   Aggregates daily portfolio-level NAV summary and demo daily return
+- `tools/t5_cash_flow_builder.py`
+  Builds signed transaction-level cash flow rows from standardized tradelist + FX cache
 - `tests/`
   Pytest test suite for the tool modules
 - `pipeline.py`
-  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4`
+  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4 -> t5`
 
 ## Input Files
 
@@ -201,6 +204,43 @@ Important columns:
 - on first available date (or if previous NAV is 0), `daily_return_pct` is empty
 - this is not yet true TWR; proper TWR will be built after the cash flow layer
 
+### `data/portfolio_cash_flows.csv`
+
+Output of Tool 5.
+
+This is a transaction-level cash flow table (no daily aggregation) built from `t0_standardized_tradelist.csv` and `fx_cache.csv`.
+
+Current default scope in pipeline:
+
+- `portfolio = FGI`
+- `scope = equity_sub`
+- includes only `Asset Type = Equities` with `Order type in (BUY, SELL)`
+
+Important columns:
+
+- `date`
+- `portfolio`
+- `scope`
+- `cf_type` (`BUY` or `SELL`)
+- `ticker`
+- `asset_class`
+- `currency`
+- `amount_local`
+- `fx_rate_to_usd`
+- `amount_usd`
+
+Sign convention:
+
+- `BUY` -> negative cash flow (cash out into positions)
+- `SELL` -> positive cash flow (cash returned from positions)
+
+FX conversion notes:
+
+- `amount_usd = amount_local * fx_rate_to_usd`
+- non-USD currencies use `fx_cache.csv` pair format `{CURRENCY}USD=X`
+- rates are forward-filled by date when transaction date is a non-trading day
+- USD transactions always use `fx_rate_to_usd = 1.0`
+
 ## Installation
 
 Recommended Python version:
@@ -233,6 +273,7 @@ This runs:
 3. `t2`
 4. `t3`
 5. `t4`
+6. `t5`
 
 ### Run tools individually
 
@@ -242,6 +283,7 @@ python -m tools.t1_holdings_builder
 python -m tools.t2_price_fetcher
 python -m tools.t3_fx_converter
 python -m tools.t4_portfolio_nav
+python -m tools.t5_cash_flow_builder
 ```
 
 ## How To Test
@@ -262,6 +304,7 @@ Current tests cover:
 - FX conversion and FX cache reuse
 - portfolio NAV aggregation with configurable scope filters
 - demo daily return calculation on portfolio NAV
+- equity BUY/SELL cash flow extraction and FX conversion into USD
 
 ## Current Known Limitations
 
@@ -269,14 +312,14 @@ Current tests cover:
 - Yahoo Finance may not provide prices for every instrument, warrant, or delisted security
 - Tool 1 currently focuses on equity holdings replay, not full multi-asset portfolio accounting
 - Portfolio-level return calculations such as IRR, MWR, and TWR are not built yet
-- A dedicated portfolio cash flow layer is not built yet
+- Tool 5 currently builds only equity BUY/SELL transaction cash flows (not yet external deposits, withdrawals, dividends, fees, FD, PE, or full multi-asset scope)
 - The current storage layer is CSV-first; SQLite and BI-ready summary tables are still pending
 
 ## Suggested Next Steps
 
 Recommended next development stages:
 
-1. Build a portfolio cash flow layer from the standardized tradelist
+1. Extend the cash flow layer beyond equity BUY/SELL (deposits, withdrawals, dividends, fees, FD, PE, and other asset classes)
 2. Build portfolio-level MWR / IRR and TWR, starting with `Portfolio = FGI` and `Asset class = Equities`
 3. Add SQLite export while still preserving CSV outputs for manual inspection
 4. Build BI-friendly summary tables for Power BI
