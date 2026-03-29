@@ -204,3 +204,43 @@ def test_replay_tracks_same_symbol_separately_by_portfolio() -> None:
     assert len(latest) == 2
     assert set(latest["Portfolio"].tolist()) == {"FGI", "SINOWELL"}
     assert sorted(latest["quantity"].tolist()) == [10.0, 20.0]
+
+
+def test_replay_merges_same_portfolio_symbol_when_isin_is_inconsistent() -> None:
+    """Rows with same portfolio/symbol/currency should merge even if ISIN differs."""
+    tx = _tx_rows(
+        [
+            {
+                "date": _date_str(-2),
+                "Portfolio": "FGI",
+                "symbol": "0005.HK",
+                "isin": "",
+                "name": "HSBC Holdings",
+                "currency": "HKD",
+                "order_type": "BUY",
+                "quantity": 100.0,
+                "price": 80.0,
+            },
+            {
+                "date": _date_str(-1),
+                "Portfolio": "FGI",
+                "symbol": "0005.HK",
+                "isin": "GB0005405286",
+                "name": "HSBC Holdings",
+                "currency": "HKD",
+                "order_type": "SELL",
+                "quantity": -40.0,
+                "price": 100.0,
+            },
+        ]
+    )
+
+    daily, exited = replay_transactions_with_exits(transactions=tx)
+    assert exited.empty
+
+    latest_date = daily["date"].max()
+    latest = daily[(daily["date"] == latest_date) & (daily["symbol"] == "0005.HK")]
+    assert len(latest) == 1
+    assert float(latest.iloc[0]["quantity"]) == 60.0
+    assert float(latest.iloc[0]["realized_pnl"]) == 800.0
+    assert latest.iloc[0]["isin"] == "GB0005405286"

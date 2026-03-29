@@ -184,7 +184,7 @@ def replay_transactions_with_exits(transactions: pd.DataFrame) -> tuple[pd.DataF
     end_date = date.today()
     all_days = pd.date_range(start=start_date, end=end_date, freq="D").date
 
-    positions: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    positions: dict[tuple[str, str, str], dict[str, Any]] = {}
     snapshots: list[dict[str, Any]] = []
     exited_positions: list[dict[str, Any]] = []
 
@@ -194,7 +194,6 @@ def replay_transactions_with_exits(transactions: pd.DataFrame) -> tuple[pd.DataF
             key = (
                 str(row.get(_PORTFOLIO_KEY_COLUMN, "")),
                 str(row["symbol"]),
-                str(row["isin"]),
                 str(row["currency"]),
             )
             state = positions.setdefault(
@@ -213,6 +212,8 @@ def replay_transactions_with_exits(transactions: pd.DataFrame) -> tuple[pd.DataF
                 },
             )
             state["name"] = str(row["name"]) or state["name"]
+            if not str(state.get("isin", "")).strip():
+                state["isin"] = str(row.get("isin", "")).strip()
             _apply_row_metadata(state=state, row=row, metadata_columns=metadata_columns)
 
             qty_change = float(row["quantity"])
