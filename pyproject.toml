@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pandas",
     "ib_async",
+    "yfinance",
 ]
 
 [project.optional-dependencies]

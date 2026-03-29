@@ -1,0 +1,6 @@
+pandas
+ib_async
+yfinance
+
+[dev]
+pytest
