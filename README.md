@@ -32,6 +32,7 @@ The pipeline currently runs these tools in sequence:
 5. `t4`: aggregate daily portfolio NAV summary (currently FGI + Equities scope)
 6. `t5`: build transaction-level portfolio cash flows (currently FGI equity BUY/SELL scope)
 7. `t6`: calculate portfolio returns (daily TWR + period returns + annualized IRR)
+8. `t7`: fetch fundamentals snapshot for latest-date current holdings
 
 ## Project Structure
 
@@ -51,10 +52,12 @@ The pipeline currently runs these tools in sequence:
   Builds signed transaction-level cash flow rows from standardized tradelist + FX cache
 - `tools/t6_return_calculator.py`
   Calculates return series from NAV + cash flows (TWR and annualized MWR/IRR)
+- `tools/t7_fundamentals_snapshot.py`
+  Fetches Yahoo fundamentals and RSI-14 for latest-date holdings snapshot
 - `tests/`
   Pytest test suite for the tool modules
 - `pipeline.py`
-  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4 -> t5 -> t6`
+  Single entry point to run `t0 -> t1 -> t2 -> t3 -> t4 -> t5 -> t6 -> t7`
 
 ## Input Files
 
@@ -277,6 +280,47 @@ Method notes:
 - `itd_return` equals `cumulative_twr`
 - `irr_annualized` is full-period (inception-to-date) IRR solved from timed cash flows and annualized with `(1 + daily_irr)^365 - 1`
 
+### `data/fundamentals_snapshot.csv`
+
+Output of Tool 7.
+
+This is a point-in-time fundamentals snapshot for latest-date holdings in the selected portfolio.
+
+Current default scope in pipeline:
+
+- `portfolio = FGI`
+- latest available holdings date from `priced_holdings_usd.csv`
+- includes only rows with `quantity > 0` and non-empty Yahoo ticker
+
+Important columns:
+
+- `snapshot_date`
+- `portfolio`
+- `yahoo_ticker`
+- `security_name`
+- `currency`
+- `quantity`
+- `market_value_usd`
+- `weight_pct`
+- `sector`
+- `industry`
+- `pe_ttm`
+- `pb_ratio`
+- `eps_ttm`
+- `book_value_per_share`
+- `dividend_yield`
+- `annual_dividend_rate`
+- `market_cap`
+- `week_52_high`
+- `week_52_low`
+- `rsi_14`
+
+Notes:
+
+- fundamentals come from `yfinance.Ticker(ticker).info`
+- RSI is computed from 1-month price history using a 14-period close-based RSI
+- this tool is snapshot-only and does not maintain a persistent cache
+
 ## Installation
 
 Recommended Python version:
@@ -311,6 +355,7 @@ This runs:
 5. `t4`
 6. `t5`
 7. `t6`
+8. `t7`
 
 ### Run tools individually
 
@@ -322,6 +367,7 @@ python -m tools.t3_fx_converter
 python -m tools.t4_portfolio_nav
 python -m tools.t5_cash_flow_builder
 python -m tools.t6_return_calculator
+python -m tools.t7_fundamentals_snapshot
 ```
 
 ## How To Test
@@ -344,6 +390,7 @@ Current tests cover:
 - demo daily return calculation on portfolio NAV
 - equity BUY/SELL cash flow extraction and FX conversion into USD
 - portfolio return calculations (TWR period series + annualized IRR)
+- fundamentals snapshot extraction with mocked Yahoo API tests
 
 ## Current Known Limitations
 
