@@ -16,13 +16,17 @@ dividend tracking and etc.
 - Each tool has a clear contract: CSV/DataFrame in -> CSV/DataFrame out
 - Tools are orchestrated by `pipeline.py`
 - UI layer (Streamlit) is separate from business logic
+- Current implemented tool chain is `t0 -> t1 -> t2 -> t3`
+- Keep the architecture extensible for future tools such as cash flow layer, returns engine, SQLite export, and BI summary tables
 
 ## Tech Stack
 - Python 3.11+
 - pandas for all data manipulation
-- IBKR API for market data
+- yfinance for market prices and FX rates in the current prototype
 - Streamlit for UI (later phase)
 - pytest for testing
+- SQLite for the planned first database layer
+- Power BI as the target downstream BI consumer
 
 ## Coding Conventions
 - Use type hints on all function signatures
@@ -33,23 +37,32 @@ dividend tracking and etc.
 - Column naming: snake_case (e.g., avg_cost, market_value)
 - Never print() in library code; use logging module
 - Each tool module must expose one main function as its entry point
+- Prefer small helper functions with clear contracts over one large procedural function
+- Preserve existing CSV column names when they are already part of the project contract
 
 ## Data Conventions
 - Multi currency: HKD, USD, GBP and etc.
 - Asset types: Stocks, Bonds, PE, Cash and etc.
 - Order Type: BUY, SELL, DIVIDEND, INTEREST, FD_PURCHASE, FD_MATURITY, FUND_BUY, FUND_SELL, CASH_IN, CASH_OUT, FEE
 - Asset classes: HK_STOCK, US_STOCK, FIXED_DEPOSIT, LIQUIDITY_FUND, MONEY_MARKET_FUND, CASH
+- Treat `Portfolio` as a first-class accounting dimension
+- For position identity, prefer stable economic identity over noisy metadata fields
+- Treat `isin` as metadata when source files are inconsistent and it should not split one economic position
 
 ## File Locations
 - Raw input: data/*.csv
 - Tool outputs: data/*.csv
 - Price cache: data/prices_cache.csv
+- FX cache: data/fx_cache.csv
 - Each tool reads from and writes to the data/ folder
+- Keep CSV outputs even after SQLite export is added, because the user wants files that can be inspected manually
 
 ## Testing
 - Every tool must have corresponding tests in tests/
 - Test with small, hand-crafted DataFrames (3-5 rows)
 - Always verify: does the output row count make sense? Do the numbers add up?
+- For accounting logic, always add focused tests for edge cases such as crossing zero, partial exits, inconsistent metadata, and cache reuse
+- For return calculations, add tests for both daily series correctness and simple known-answer cases
 
 ## IMPORTANT
 - When I say "build Tool X", implement the full module with:
@@ -60,3 +73,33 @@ dividend tracking and etc.
   5. A small example/test at the bottom in if __name__ == "__main__"
 - Do NOT use placeholder/stub code. Write real, working implementations.
 - When modifying existing code, show the COMPLETE file.
+- When adding a new tool, also update `pipeline.py`, tests, and `README.md`
+
+## GIT
+- Only create git commits when explicitly requested by the user
+
+## Data
+- For stock and FX data, use `yfinance` in the current prototype
+- Yahoo Finance coverage can be incomplete, so tools must handle missing prices and missing FX gracefully
+- Manual override tables are acceptable when upstream identifiers are inconsistent
+- Reference: https://github.com/ranaroussi/yfinance
+
+## Current Tool Responsibilities
+- `t0`: standardize raw tradelist rows and add normalized fields such as order type, booking date, ISIN, quantity, execution price, symbol, and Yahoo ticker
+- `t1`: replay transactions into daily holdings and exited positions
+- `t2`: fetch prices and compute market value, unrealized P&L, realized P&L, and total P&L
+- `t3`: fetch FX and convert priced holdings into USD fields
+
+## Planned Next Steps
+- Build a dedicated cash flow layer from the standardized tradelist
+- Build portfolio-level return calculations, starting with `Portfolio = FGI` and `Asset class = Equities`
+- Support daily TWR and MWR / IRR
+- Add SQLite export for detailed and summary tables
+- Build BI-friendly tables for Power BI
+
+## Returns Planning Guidance
+- Do not try to compute portfolio returns from holdings alone
+- Build returns on top of both holdings/NAV data and a normalized external cash flow layer
+- Separate internal movements from external cash flows whenever possible
+- Start with a narrow correct slice first: `FGI` equities only
+- Design the schema so bonds, PE, fixed deposits, and full-portfolio views can be added later without rewriting the whole pipeline
