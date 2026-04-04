@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from tools.t1_holdings_builder import replay_transactions_with_exits
+from tools.t1_holdings_builder import build_holdings, replay_transactions_with_exits
+
+
+def test_build_holdings_requires_t0_tradelist(tmp_path: Path) -> None:
+    """Without t0 output, build_holdings must fail with a clear message."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    out = data_dir / "daily_holdings.csv"
+    with pytest.raises(FileNotFoundError, match="t0_standardized_tradelist\\.csv not found"):
+        build_holdings(data_dir=data_dir, output_path=out)
 
 
 def _date_str(days_offset: int) -> str:

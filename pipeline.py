@@ -31,6 +31,7 @@ def run_pipeline(data_dir: Path) -> dict[str, pd.DataFrame]:
     daily_holdings = build_holdings(
         data_dir=data_dir,
         output_path=data_dir / "daily_holdings.csv",
+        tradelist_path=data_dir / "t0_standardized_tradelist.csv",
     )
     priced_holdings = build_priced_holdings(
         data_dir=data_dir,

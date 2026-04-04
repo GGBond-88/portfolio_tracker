@@ -11,12 +11,7 @@ import pandas as pd
 
 LOGGER = logging.getLogger(__name__)
 
-_OUTPUT_EXCLUDE_NAMES = {
-    "daily_holdings.csv",
-    "exited_positions.csv",
-    "prices_cache.csv",
-    "normalized_transactions.csv",
-}
+T0_STANDARDIZED_TRADELIST_FILENAME = "t0_standardized_tradelist.csv"
 
 # Columns from t0 standardised tradelist to preserve on holdings output (same names).
 _T0_SOURCE_METADATA_COLUMNS: tuple[str, ...] = (
@@ -30,12 +25,11 @@ _T0_SOURCE_METADATA_COLUMNS: tuple[str, ...] = (
 _PORTFOLIO_KEY_COLUMN = "portfolio_key"
 
 
-def inspect_csv(data_dir: Path) -> pd.DataFrame:
-    """Find latest CSV, print schema diagnostics, and return raw DataFrame."""
-    latest_csv = _find_latest_csv(data_dir=data_dir)
-    raw_df = pd.read_csv(latest_csv, dtype=str)
+def inspect_csv(tradelist_path: Path) -> pd.DataFrame:
+    """Print schema diagnostics for the standardized tradelist and return raw DataFrame."""
+    raw_df = pd.read_csv(tradelist_path, dtype=str)
 
-    LOGGER.info("Inspecting CSV: %s", latest_csv)
+    LOGGER.info("Inspecting CSV: %s", tradelist_path)
     LOGGER.info("All column names (%s): %s", len(raw_df.columns), list(raw_df.columns))
     LOGGER.info("First 5 rows:\n%s", raw_df.head(5).to_string(index=False))
 
@@ -58,10 +52,9 @@ def inspect_csv(data_dir: Path) -> pd.DataFrame:
     return raw_df
 
 
-def load_and_filter_transactions(data_dir: Path) -> pd.DataFrame:
-    """Load latest CSV, filter to equities, and normalize transaction columns."""
-    latest_csv = _find_latest_csv(data_dir=data_dir)
-    raw_df = pd.read_csv(latest_csv, dtype=str)
+def load_and_filter_transactions(tradelist_path: Path) -> pd.DataFrame:
+    """Load t0 standardized tradelist, filter to equities, and normalize transaction columns."""
+    raw_df = pd.read_csv(tradelist_path, dtype=str)
 
     asset_type_column = _require_column(raw_df, ["Asset Type", "AssetType"])
     order_type_column = _require_column(raw_df, ["Order type", "Order Type"])
@@ -85,7 +78,7 @@ def load_and_filter_transactions(data_dir: Path) -> pd.DataFrame:
     metadata_present = [c for c in _T0_SOURCE_METADATA_COLUMNS if c in equities_df.columns]
 
     if equities_df.empty:
-        LOGGER.warning("No equities rows found in %s.", latest_csv)
+        LOGGER.warning("No equities rows found in %s.", tradelist_path)
         empty_cols = [
             "date",
             "symbol",
@@ -275,10 +268,20 @@ def replay_transactions_with_exits(transactions: pd.DataFrame) -> tuple[pd.DataF
     )
 
 
-def build_holdings(data_dir: Path, output_path: Path) -> pd.DataFrame:
+def build_holdings(
+    data_dir: Path,
+    output_path: Path,
+    tradelist_path: Path | None = None,
+) -> pd.DataFrame:
     """Main entry point: inspect, load/filter, replay, save, and return holdings."""
-    inspect_csv(data_dir=data_dir)
-    transactions = load_and_filter_transactions(data_dir=data_dir)
+    resolved = tradelist_path if tradelist_path is not None else data_dir / T0_STANDARDIZED_TRADELIST_FILENAME
+    if not resolved.exists():
+        if resolved.name == T0_STANDARDIZED_TRADELIST_FILENAME:
+            raise FileNotFoundError("t0_standardized_tradelist.csv not found. Run t0 first.")
+        raise FileNotFoundError(f"Tradelist file not found: {resolved}")
+
+    inspect_csv(tradelist_path=resolved)
+    transactions = load_and_filter_transactions(tradelist_path=resolved)
     daily_holdings, exited_positions = replay_transactions_with_exits(transactions=transactions)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -390,13 +393,6 @@ def _exit_record(state: dict[str, Any], exit_day: date, metadata_columns: list[s
     for column in metadata_columns:
         row[column] = state.get(column, "")
     return row
-
-
-def _find_latest_csv(data_dir: Path) -> Path:
-    csv_paths = [path for path in data_dir.glob("*.csv") if path.name not in _OUTPUT_EXCLUDE_NAMES]
-    if not csv_paths:
-        raise FileNotFoundError(f"No CSV files found in: {data_dir}")
-    return max(csv_paths, key=lambda path: path.stat().st_mtime)
 
 
 def _pick_first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
