@@ -159,25 +159,20 @@ def _prepare_daily_cash_flows(cf_df: pd.DataFrame, portfolio_filter: str | None)
 
 
 def _compute_daily_twr(nav_series: pd.Series, net_cf_series: pd.Series) -> pd.Series:
-    """Compute daily modified-Dietz style sub-period return series."""
+    """Compute daily simple-TWR sub-period returns: (nav_t - nav_prev + cf_t) / nav_prev.
+
+    Cash flows use investor perspective (BUY negative, SELL positive), so +cf_t matches
+    standard time-weighted numerator minus external inflows.
+    """
     returns: list[Any] = [pd.NA]
     for idx in range(1, len(nav_series)):
         nav_t = float(nav_series.iloc[idx])
         nav_prev = float(nav_series.iloc[idx - 1])
         cf_t = float(net_cf_series.iloc[idx])
-        numerator = nav_t - nav_prev + cf_t
-        if cf_t < 0:
-            denominator = nav_prev - cf_t
-            if denominator <= 0:
-                returns.append(0.0)
-                continue
-            returns.append(numerator / denominator)
-        else:
-            denominator = nav_prev
-            if denominator <= 0:
-                returns.append(0.0)
-                continue
-            returns.append(numerator / denominator)
+        if nav_prev <= 0:
+            returns.append(0.0)
+            continue
+        returns.append((nav_t - nav_prev + cf_t) / nav_prev)
     return pd.Series(returns, dtype="Float64")
 
 

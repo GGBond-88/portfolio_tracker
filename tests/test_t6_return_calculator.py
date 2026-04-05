@@ -80,7 +80,7 @@ def test_build_portfolio_returns_simple_no_cash_flows(tmp_path: Path) -> None:
 
 
 def test_build_portfolio_returns_adjusts_for_inflow_cash_flow(tmp_path: Path) -> None:
-    """BUY cash flow (negative) should apply inflow-adjusted denominator."""
+    """BUY cash flow (negative): simple TWR uses prior NAV as denominator."""
     nav_path = tmp_path / "portfolio_nav.csv"
     cf_path = tmp_path / "portfolio_cash_flows.csv"
     output_path = tmp_path / "portfolio_returns.csv"
@@ -115,10 +115,96 @@ def test_build_portfolio_returns_adjusts_for_inflow_cash_flow(tmp_path: Path) ->
     )
 
     assert float(out_df.loc[1, "daily_net_cf_usd"]) == -50.0
-    assert abs(float(out_df.loc[1, "daily_return_twr"]) - (10.0 / 150.0)) < 1e-6
+    assert abs(float(out_df.loc[1, "daily_return_twr"]) - (10.0 / 100.0)) < 1e-6
     assert float(out_df.loc[2, "daily_return_twr"]) == 0.05
-    cumulative = (1.0 + 10.0 / 150.0) * 1.05 - 1.0
+    cumulative = (1.0 + 10.0 / 100.0) * 1.05 - 1.0
     assert abs(float(out_df.loc[2, "cumulative_twr"]) - cumulative) < 1e-6
+
+
+def test_build_portfolio_returns_sell_outflow_uses_nav_prev_denominator(tmp_path: Path) -> None:
+    """SELL cash flow (positive): same denominator nav_prev as BUY path."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-01-01", "portfolio": "FGI", "total_market_value_usd": "100"},
+            {"date": "2026-01-02", "portfolio": "FGI", "total_market_value_usd": "90"},
+            {"date": "2026-01-03", "portfolio": "FGI", "total_market_value_usd": "94.5"},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+
+    cf_df = _make_cf_df(
+        [
+            {
+                "date": "2026-01-02",
+                "portfolio": "FGI",
+                "cf_type": "SELL",
+                "amount_local": "20",
+                "amount_usd": "20",
+            }
+        ]
+    )
+    cf_df.to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    assert float(out_df.loc[1, "daily_net_cf_usd"]) == 20.0
+    # (90 - 100 + 20) / 100 = 0.10
+    assert abs(float(out_df.loc[1, "daily_return_twr"]) - 0.10) < 1e-6
+    assert float(out_df.loc[2, "daily_return_twr"]) == 0.05
+    cumulative = 1.10 * 1.05 - 1.0
+    assert abs(float(out_df.loc[2, "cumulative_twr"]) - cumulative) < 1e-6
+
+
+def test_build_portfolio_returns_feb23_real_numbers_hand_check(tmp_path: Path) -> None:
+    """FGI Feb 23 row: (nav_t - nav_prev + cf) / nav_prev matches hand calculation."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_prev = 2219708.36
+    nav_t = 2423530.69
+    buy_usd = 164566.78
+    expected_daily = (nav_t - nav_prev - buy_usd) / nav_prev
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-02-22", "portfolio": "FGI", "total_market_value_usd": str(nav_prev)},
+            {"date": "2026-02-23", "portfolio": "FGI", "total_market_value_usd": str(nav_t)},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+
+    cf_df = _make_cf_df(
+        [
+            {
+                "date": "2026-02-23",
+                "portfolio": "FGI",
+                "cf_type": "BUY",
+                "amount_local": f"-{buy_usd}",
+                "amount_usd": f"-{buy_usd}",
+            }
+        ]
+    )
+    cf_df.to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    assert abs(float(out_df.loc[1, "daily_return_twr"]) - expected_daily) < 1e-5
+    assert abs(expected_daily - 0.01769) < 2e-4
 
 
 def test_build_portfolio_returns_irr_known_answer(tmp_path: Path) -> None:
