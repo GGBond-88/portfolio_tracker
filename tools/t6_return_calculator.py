@@ -66,6 +66,7 @@ def build_portfolio_returns(
 
     daily_cf = _prepare_daily_cash_flows(cf_df=cf_df, portfolio_filter=portfolio_filter)
     returns_df = nav_series.merge(daily_cf, how="left", on="date")
+    # Upstream t5 guarantees no NaN; fillna(0) is defensive only.
     returns_df["daily_net_cf_usd"] = pd.to_numeric(returns_df["daily_net_cf_usd"], errors="coerce").fillna(0.0)
 
     returns_df = returns_df.sort_values(by=["date"], kind="stable").reset_index(drop=True)
@@ -76,7 +77,8 @@ def build_portfolio_returns(
         net_cf_series=returns_df["daily_net_cf_usd"],
     )
     returns_df["daily_return_twr"] = daily_returns
-    gross_daily = (1.0 + returns_df["daily_return_twr"].fillna(0.0)).astype(float)
+    # NaN daily_return_twr (first row, or prior NAV ≤ 0): chain-linked TWR skips that day → gross factor 1.0.
+    gross_daily = (1.0 + returns_df["daily_return_twr"]).fillna(1.0).astype(float)
     returns_df["cumulative_twr"] = gross_daily.cumprod() - 1.0
     returns_df["itd_return"] = returns_df["cumulative_twr"]
     returns_df["mtd_return"] = _compute_period_returns(
@@ -169,6 +171,9 @@ def _compute_daily_twr(nav_series: pd.Series, net_cf_series: pd.Series) -> pd.Se
 
     Cash flows use investor perspective (BUY negative, SELL positive), so +cf_t matches
     standard time-weighted numerator minus external inflows.
+
+    Row 0 is undefined (no prior NAV). If ``nav_prev <= 0``, the daily return is NaN
+    (denominator invalid), not 0%.
     """
     returns: list[Any] = [pd.NA]
     for idx in range(1, len(nav_series)):
@@ -176,7 +181,7 @@ def _compute_daily_twr(nav_series: pd.Series, net_cf_series: pd.Series) -> pd.Se
         nav_prev = float(nav_series.iloc[idx - 1])
         cf_t = float(net_cf_series.iloc[idx])
         if nav_prev <= 0:
-            returns.append(0.0)
+            returns.append(float("nan"))
             continue
         returns.append((nav_t - nav_prev + cf_t) / nav_prev)
     return pd.Series(returns, dtype="Float64")

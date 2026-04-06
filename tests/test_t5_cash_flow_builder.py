@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tools.t5_cash_flow_builder import build_cash_flows
 
@@ -190,6 +191,43 @@ def test_build_cash_flows_hkd_uses_forward_filled_fx(tmp_path: Path) -> None:
     assert float(row["amount_local"]) == -2000.0
     assert float(row["fx_rate_to_usd"]) == 0.128
     assert float(row["amount_usd"]) == -256.0
+
+
+def test_build_cash_flows_raises_when_fx_missing_for_non_usd(tmp_path: Path) -> None:
+    """Non-USD rows without a usable FX rate must fail loudly (no NaN amount_usd written)."""
+    tradelist_path = tmp_path / "t0_standardized_tradelist.csv"
+    fx_cache_path = tmp_path / "fx_cache.csv"
+    output_path = tmp_path / "portfolio_cash_flows.csv"
+
+    tradelist_df = pd.DataFrame(
+        [
+            {
+                "Asset Type": "Equities",
+                "Portfolio": "FGI",
+                "Order type": "BUY",
+                "Booking date": "2026-02-01",
+                "Quantity": "100",
+                "Execution price": "10",
+                "Currency": "HKD",
+                "Yahoo Ticker": "0005.HK",
+                "Asset class": "Equities",
+            }
+        ]
+    )
+    tradelist_df.to_csv(tradelist_path, index=False)
+    pd.DataFrame(columns=["fx_pair", "date", "fx_rate_to_usd", "updated_at_utc"]).to_csv(
+        fx_cache_path,
+        index=False,
+    )
+
+    with pytest.raises(ValueError, match="Missing FX rate to USD"):
+        build_cash_flows(
+            data_dir=tmp_path,
+            tradelist_path=tradelist_path,
+            fx_cache_path=fx_cache_path,
+            output_path=output_path,
+        )
+    assert not output_path.exists()
 
 
 def test_build_cash_flows_usd_rows_use_fx_rate_one(tmp_path: Path) -> None:

@@ -111,6 +111,8 @@ def build_cash_flows(
     cash_df.loc[cash_df["currency"] == "USD", "fx_rate_to_usd"] = 1.0
     cash_df["amount_usd"] = (cash_df["amount_local"] * cash_df["fx_rate_to_usd"]).round(8)
 
+    _raise_if_missing_fx_to_usd(cash_df)
+
     output_df = cash_df[_OUTPUT_COLUMNS].copy()
     output_df["date"] = output_df["date"].map(lambda value: value.isoformat())
     output_df = output_df.sort_values(by=["date", "portfolio", "ticker"], kind="stable").reset_index(drop=True)
@@ -118,11 +120,8 @@ def build_cash_flows(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_df.to_csv(output_path, index=False)
 
-    missing_fx = int(output_df["fx_rate_to_usd"].isna().sum())
     LOGGER.info("Saved cash flows to %s", output_path)
     LOGGER.info("Cash flow rows: %s", len(output_df))
-    if missing_fx:
-        LOGGER.warning("Missing fx_rate_to_usd on %s rows.", missing_fx)
     return output_df
 
 
@@ -131,6 +130,21 @@ def _assert_required_columns(df: pd.DataFrame, required_columns: list[str], labe
     missing = [column for column in required_columns if column not in df.columns]
     if missing:
         raise ValueError(f"Missing required {label} columns: {', '.join(missing)}")
+
+
+def _raise_if_missing_fx_to_usd(df: pd.DataFrame) -> None:
+    """Log and fail if any row lacks fx_rate_to_usd (avoids silent NaN amount_usd downstream)."""
+    missing_mask = df["fx_rate_to_usd"].isna()
+    if not missing_mask.any():
+        return
+    bad = df.loc[missing_mask, ["date", "currency"]].drop_duplicates()
+    for _, row in bad.iterrows():
+        LOGGER.error("Missing fx_rate_to_usd for date=%s, currency=%s.", row["date"], row["currency"])
+    details = [(row["date"], str(row["currency"])) for _, row in bad.iterrows()]
+    raise ValueError(
+        "Missing FX rate to USD for one or more cash flow rows; cannot compute amount_usd. "
+        f"Affected (date, currency): {details}"
+    )
 
 
 def _to_fx_pair(currency: str) -> str:

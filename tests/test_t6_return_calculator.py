@@ -48,6 +48,32 @@ def _make_cf_df(rows: list[dict[str, str]]) -> pd.DataFrame:
     return pd.DataFrame(normalized)
 
 
+def test_build_portfolio_returns_daily_twr_nan_when_nav_prev_non_positive(tmp_path: Path) -> None:
+    """Prior-day NAV ≤ 0 makes daily TWR undefined (NaN), not a silent 0% day."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-01-01", "portfolio": "FGI", "total_market_value_usd": "0"},
+            {"date": "2026-01-02", "portfolio": "FGI", "total_market_value_usd": "100"},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+    _make_cf_df([]).to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    assert pd.isna(out_df.loc[0, "daily_return_twr"])
+    assert pd.isna(out_df.loc[1, "daily_return_twr"])
+
+
 def test_build_portfolio_returns_simple_no_cash_flows(tmp_path: Path) -> None:
     """No-cash-flow path should produce 10%, 10%, cumulative 21%."""
     nav_path = tmp_path / "portfolio_nav.csv"

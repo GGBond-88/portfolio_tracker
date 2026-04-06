@@ -76,9 +76,10 @@ def test_build_priced_holdings_adds_pnl_columns(monkeypatch, tmp_path: Path) -> 
 
     assert output_path.exists()
     assert cache_path.exists()
-    assert {"market_price", "market_value", "unrealized_pnl", "unreatlized_pnl", "total_pnl"}.issubset(
-        priced_df.columns
-    )
+    assert "unrealized_pnl" in priced_df.columns
+    assert {"market_price", "market_value", "total_pnl"}.issubset(priced_df.columns)
+    assert "unreatlized_pnl" in priced_df.columns
+    assert priced_df["unreatlized_pnl"].astype(float).tolist() == priced_df["unrealized_pnl"].astype(float).tolist()
     assert float(priced_df.loc[0, "market_price"]) == 120.0
     assert float(priced_df.loc[1, "market_price"]) == 130.0
     assert float(priced_df.loc[1, "market_value"]) == 1300.0
@@ -154,5 +155,6 @@ def test_build_priced_holdings_reuses_cache_without_fetch(monkeypatch, tmp_path:
         cache_path=cache_path,
     )
 
+    assert "unrealized_pnl" in priced_df.columns
     assert float(priced_df.loc[0, "market_price"]) == 140.0
     assert float(priced_df.loc[1, "market_price"]) == 150.0

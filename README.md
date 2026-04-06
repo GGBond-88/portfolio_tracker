@@ -6,20 +6,21 @@ The project converts raw broker transaction exports into analysis-ready portfoli
 
 ## Current Scope
 
-The current implemented pipeline focuses on:
+The pipeline **implements Tools `t0`–`t7` end to end**:
 
-- standardizing raw tradelist exports
-- replaying transactions into daily holdings
-- fetching market prices from Yahoo Finance
-- converting holdings into USD using daily FX rates
-- calculating basic market value and P&L fields
+- **`t0`–`t1`**: standardize tradelist exports and replay into daily holdings (and exited positions)
+- **`t2`–`t3`**: Yahoo Finance prices, local-currency valuation, then daily FX into USD (`priced_holdings_usd.csv`)
+- **`t4`**: daily portfolio NAV aggregate (`portfolio_nav.csv`) for the configured portfolio and asset-class filter
+- **`t5`**: transaction-level equity BUY/SELL cash flows in USD (`portfolio_cash_flows.csv`)
+- **`t6`**: daily TWR-style sub-period returns, period-to-date links, and annualized IRR (`portfolio_returns.csv`)
+- **`t7`**: fundamentals snapshot (Yahoo `info` + RSI-14) for latest-date live holdings (`fundamentals_snapshot.csv`)
 
-The next planned stage is:
+**Still missing / next priorities** (not implemented yet):
 
-- building a proper cash flow layer
-- computing portfolio-level MWR / IRR and TWR
-- exporting consolidated outputs into SQLite
-- creating BI-friendly summary tables for Power BI
+- **SQLite** (or similar) export while keeping inspectable CSVs
+- **Full-asset cash flows** (dividends, fees, deposits/withdrawals, FD, PE, non-equity classes) beyond equity BUY/SELL
+- **BI dashboard / Power BI–ready summary tables** and a richer reporting layer
+- **Returns and NAV** extended to whole-portfolio, multi-asset accounting (today defaults to FGI + Equities + `equity_sub` scope)
 
 ## Current Pipeline
 
@@ -29,7 +30,7 @@ The pipeline currently runs these tools in sequence:
 2. `t1`: replay trades into daily holdings snapshots and exited positions
 3. `t2`: fetch market prices and calculate market value / unrealized P&L / total P&L
 4. `t3`: fetch daily FX rates and convert priced holdings into USD
-5. `t4`: aggregate daily portfolio NAV summary (currently FGI + Equities scope)
+5. `t4`: aggregate daily portfolio NAV summary (default: FGI + Equities, `scope = equity_sub`)
 6. `t5`: build transaction-level portfolio cash flows (currently FGI equity BUY/SELL scope)
 7. `t6`: calculate portfolio returns (daily TWR + period returns + annualized IRR)
 8. `t7`: fetch fundamentals snapshot for latest-date current holdings
@@ -47,7 +48,7 @@ The pipeline currently runs these tools in sequence:
 - `tools/t3_fx_converter.py`
   Fetches daily FX rates and creates USD-valued priced holdings
 - `tools/t4_portfolio_nav.py`
-  Aggregates daily portfolio-level NAV summary and demo daily return
+  Aggregates daily portfolio-level NAV summary and a simple NAV day-over-day return column
 - `tools/t5_cash_flow_builder.py`
   Builds signed transaction-level cash flow rows from standardized tradelist + FX cache
 - `tools/t6_return_calculator.py`
@@ -146,6 +147,7 @@ Important columns:
 - `unrealized_pnl`
 - `realized_pnl`
 - `total_pnl`
+- `unreatlized_pnl` — deprecated typo alias of `unrealized_pnl`, still written for CSV compatibility (`# DEPRECATED: remove after migration` in Tool 2)
 
 Definitions:
 
@@ -184,11 +186,11 @@ Output of Tool 4.
 
 This is a daily portfolio-level summary aggregated from `priced_holdings_usd.csv`.
 
-Current default scope in pipeline:
+Current default scope in pipeline (see `pipeline.py`):
 
 - `portfolio = FGI`
 - `asset class = Equities`
-- `scope = fgi_equities`
+- `scope = equity_sub` (same string as `t5` / `t6`; labels the equity sub-portfolio slice)
 
 Important columns:
 
@@ -203,12 +205,12 @@ Important columns:
 - `total_pnl_usd`
 - `daily_return_pct`
 
-`daily_return_pct` is currently a demo-level day-over-day return:
+`daily_return_pct` is a **simple day-over-day NAV change**, not time-weighted return:
 
 - `daily_return_pct = (NAV_today - NAV_yesterday) / NAV_yesterday`
 - NAV here is `total_market_value_usd`
-- on first available date (or if previous NAV is 0), `daily_return_pct` is empty
-- this is not yet true TWR; proper TWR will be built after the cash flow layer
+- on the first available date, or if previous NAV is 0 or missing, `daily_return_pct` is empty
+- **For cash-flow-adjusted daily TWR and linked cumulative series, use `t6` output `portfolio_returns.csv`** (`daily_return_twr`, `cumulative_twr`, etc.)
 
 ### `data/portfolio_cash_flows.csv`
 
@@ -277,6 +279,7 @@ Important columns:
 Method notes:
 
 - daily TWR uses a modified-Dietz style sub-period formula with start-of-day cash flow handling
+- when prior-day NAV ≤ 0, `daily_return_twr` is NaN (undefined); chain-linked cumulative TWR skips those days (gross factor 1.0)
 - `daily_net_cf_usd` is summed by date from transaction-level cash flow rows
 - `itd_return` equals `cumulative_twr`
 - `irr_annualized_full` is a single full-sample annualized IRR (same value on every row), solved from timed cash flows and annualized with `(1 + daily_irr)^365 - 1`
@@ -390,45 +393,36 @@ Current tests cover:
 - price fetching and price cache reuse
 - FX conversion and FX cache reuse
 - portfolio NAV aggregation with configurable scope filters
-- demo daily return calculation on portfolio NAV
+- simple NAV day-over-day `daily_return_pct` on portfolio NAV (distinct from `t6` TWR)
 - equity BUY/SELL cash flow extraction and FX conversion into USD
 - portfolio return calculations (TWR period series + annualized IRR)
 - fundamentals snapshot extraction with mocked Yahoo API tests
 
-## Current Known Limitations
+## Known Limitations
 
-- Some Yahoo tickers still require manual override entries in `data/ticker_overrides.csv`
-- Yahoo Finance may not provide prices for every instrument, warrant, or delisted security
-- Tool 1 currently focuses on equity holdings replay, not full multi-asset portfolio accounting
-- Tool 6 provides first-cut TWR and annualized IRR, but currently only for the filtered NAV + equity BUY/SELL cash flow scope
-- Tool 5 currently builds only equity BUY/SELL transaction cash flows (not yet external deposits, withdrawals, dividends, fees, FD, PE, or full multi-asset scope)
-- Return calculations currently focus on NAV + equity BUY/SELL cash flows for a filtered scope (default `FGI` + `equity_sub`)
-- The current storage layer is CSV-first; SQLite and BI-ready summary tables are still pending
+- **`t4` `daily_return_pct`** is a plain ratio of consecutive NAVs. It is **not** time-weighted return. **Formal TWR** (with daily cash-flow adjustment in the numerator) is in **`t6` → `portfolio_returns.csv`** (`daily_return_twr`, `cumulative_twr`, …).
+- **`t5` cash flows** include **only equity `BUY` / `SELL`** (plus FX into USD). They omit **dividends, interest, fees, and external cash in/out**. **`t6` IRR / MWR** is therefore **economically incomplete** until the cash-flow layer matches how you define investor contributions and distributions.
+- **`t6` TWR**: when **prior-day NAV ≤ 0**, **`daily_return_twr` is NaN** (undefined); cumulative TWR does not compound those days.
+- Some Yahoo tickers still require manual overrides in `data/ticker_overrides.csv`
+- Yahoo Finance may not provide prices or FX for every instrument, warrant, or delisted security
+- **Tool 1** focuses on **equity** holdings replay, not full multi-asset portfolio accounting
+- **Default pipeline scope** is **FGI + Equities + `equity_sub`** for NAV, cash flows, and returns; other portfolios and asset classes need explicit parameter changes or future extensions
+- **Storage is CSV-first**; SQLite export and BI-ready summary tables are not implemented yet
 
 ## Suggested Next Steps
 
-Recommended next development stages:
+1. **Enrich cash flows** beyond equity BUY/SELL (deposits, withdrawals, dividends, interest, fees, FD, PE, other asset classes) and align them with IRR / MWR definitions
+2. **Broaden NAV and returns** from the current FGI + Equities + `equity_sub` slice to full-portfolio views where needed
+3. **Add SQLite export** (and optional BI staging tables) while **keeping CSV outputs** for manual inspection
+4. **Dashboard / Power BI**: curated summary tables and refresh workflow on top of the existing CSVs or SQLite
 
-1. Extend the cash flow layer beyond equity BUY/SELL (deposits, withdrawals, dividends, fees, FD, PE, and other asset classes)
-2. Extend return calculations beyond the current filtered equity sub-scope to full portfolio accounting
-3. Add SQLite export while still preserving CSV outputs for manual inspection
-4. Build BI-friendly summary tables for Power BI
+## Design Direction For Extensions
 
-## Design Direction For The Next Stage
+The codebase already has a **first cash-flow slice** (`t5`), **NAV** (`t4`), and a **return engine** (`t6`). Further work should **extend** rather than replace that shape:
 
-The next returns engine should likely follow this structure:
+1. **Cash flow layer** — normalized external and internal movements (still separate from pure trading rows where that matters for returns)
+2. **Portfolio NAV layer** — daily market value (and eventually cash) consistent with the return definition
+3. **Return engine** — same TWR / IRR patterns as `t6`, fed by the expanded flows and NAV
+4. **Database export** — SQLite (or similar) with both detail and BI-friendly aggregates
 
-1. `cash flow layer`
-   A normalized daily table of portfolio cash movements such as deposits, withdrawals, fees, dividends, and trading cash flows
-2. `portfolio NAV layer`
-   A daily portfolio-level table that aggregates holdings market value and cash balances
-3. `return engine`
-   Portfolio-level daily TWR and MWR / IRR outputs
-4. `database export`
-   SQLite tables that preserve both detailed rows and BI-friendly summary views
-
-The recommended first implementation scope is:
-
-- `Portfolio = FGI`
-- `Asset class = Equities`
-- keep the design extensible so bonds, PE, fixed deposits, and other asset classes can be added later
+Keep the design **extensible** beyond **FGI + Equities** so bonds, PE, fixed deposits, and other asset classes can be added without a full rewrite.

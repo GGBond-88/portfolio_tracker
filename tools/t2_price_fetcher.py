@@ -28,6 +28,7 @@ def build_priced_holdings(
     holdings_df = pd.read_csv(holdings_path, dtype=str)
     if holdings_df.empty:
         empty_df = holdings_df.copy()
+        # unreatlized_pnl: DEPRECATED: remove after migration (typo alias for CSV consumers).
         for column in ["market_price", "market_value", "unrealized_pnl", "unreatlized_pnl", "total_pnl"]:
             empty_df[column] = pd.Series(dtype=float)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +83,7 @@ def build_priced_holdings(
 
     priced_df["market_value"] = (priced_df["quantity"] * priced_df["market_price"]).round(8)
     priced_df["unrealized_pnl"] = (priced_df["market_value"] - priced_df["cost_basis"]).round(8)
-    priced_df["unreatlized_pnl"] = priced_df["unrealized_pnl"]
+    priced_df["unreatlized_pnl"] = priced_df["unrealized_pnl"]  # DEPRECATED: remove after migration
     priced_df["total_pnl"] = (priced_df["unrealized_pnl"] + priced_df["realized_pnl"]).round(8)
 
     priced_df = priced_df.sort_values(by=["date", "yahoo_ticker"], kind="stable").reset_index(drop=True)
