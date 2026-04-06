@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tools.t6_return_calculator import build_portfolio_returns
 
@@ -208,7 +209,11 @@ def test_build_portfolio_returns_feb23_real_numbers_hand_check(tmp_path: Path) -
 
 
 def test_build_portfolio_returns_irr_known_answer(tmp_path: Path) -> None:
-    """Full-period annualized IRR should be ~10% for 1000 to 1100 in 365 days."""
+    """Full-period annualized IRR ~10% for 1000→1100 in 365 days.
+
+    Cash flows file is empty → ``daily_net_cf_usd.iloc[0] == 0`` → initial IRR
+    outflow falls back to ``-nav_usd[0]`` (-1000).
+    """
     nav_path = tmp_path / "portfolio_nav.csv"
     cf_path = tmp_path / "portfolio_cash_flows.csv"
     output_path = tmp_path / "portfolio_returns.csv"
@@ -229,6 +234,122 @@ def test_build_portfolio_returns_irr_known_answer(tmp_path: Path) -> None:
         output_path=output_path,
     )
 
-    irr_value = float(out_df.loc[1, "irr_annualized"])
-    assert abs(irr_value - 0.10) < 1e-6
-    assert out_df["irr_annualized"].notna().all()
+    irr_full = float(out_df.loc[1, "irr_annualized_full"])
+    assert abs(irr_full - 0.10) < 1e-6
+    assert out_df["irr_annualized_full"].notna().all()
+    assert pd.isna(out_df.loc[0, "irr_annualized_itd"])
+    irr_itd_end = float(out_df.loc[1, "irr_annualized_itd"])
+    assert abs(irr_itd_end - 0.10) < 1e-6
+
+
+def test_irr_uses_initial_cf_not_nav(tmp_path: Path) -> None:
+    """When day-0 has net CF, IRR uses it as t=0 outflow, not -NAV."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-01-01", "portfolio": "FGI", "total_market_value_usd": "1050"},
+            {"date": "2026-01-26", "portfolio": "FGI", "total_market_value_usd": "1100"},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+    cf_df = _make_cf_df(
+        [
+            {
+                "date": "2026-01-01",
+                "portfolio": "FGI",
+                "cf_type": "BUY",
+                "amount_local": "-1000",
+                "amount_usd": "-1000",
+            }
+        ]
+    )
+    cf_df.to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    span_days = 25  # 2026-01-01 → 2026-01-26 in IRR day-count
+    irr_cf_based = (1100.0 / 1000.0) ** (365.0 / span_days) - 1.0
+    irr_nav_based = (1100.0 / 1050.0) ** (365.0 / span_days) - 1.0
+    irr_full = float(out_df.loc[1, "irr_annualized_full"])
+    assert irr_full == pytest.approx(irr_cf_based, rel=1e-6)
+    assert irr_full != pytest.approx(irr_nav_based, rel=1e-2)
+
+
+def test_irr_fallback_no_day0_cf_uses_nav_for_itd(tmp_path: Path) -> None:
+    """No day-0 CF → initial outflow is -NAV; short-window ITD matches CAGR on NAV."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-01-01", "portfolio": "FGI", "total_market_value_usd": "1000"},
+            {"date": "2026-01-26", "portfolio": "FGI", "total_market_value_usd": "1004"},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+    _make_cf_df([]).to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    span_days = 25  # 2026-01-01 → 2026-01-26
+    expected = (1004.0 / 1000.0) ** (365.0 / span_days) - 1.0
+    assert expected == pytest.approx(0.0596, rel=0.02)
+    irr_itd = float(out_df.loc[1, "irr_annualized_itd"])
+    assert irr_itd == pytest.approx(expected, rel=1e-6)
+    irr_full = float(out_df.loc[1, "irr_annualized_full"])
+    assert irr_full == pytest.approx(expected, rel=1e-6)
+
+
+def test_irr_day0_small_cf_vs_nav_uses_full_nav(tmp_path: Path) -> None:
+    """Day-0 |CF| < 50% of NAV → treat as top-up; initial outflow is -NAV, not CF."""
+    nav_path = tmp_path / "portfolio_nav.csv"
+    cf_path = tmp_path / "portfolio_cash_flows.csv"
+    output_path = tmp_path / "portfolio_returns.csv"
+
+    nav_df = _make_nav_df(
+        [
+            {"date": "2026-01-01", "portfolio": "FGI", "total_market_value_usd": "51000"},
+            {"date": "2026-01-26", "portfolio": "FGI", "total_market_value_usd": "52000"},
+        ]
+    )
+    nav_df.to_csv(nav_path, index=False)
+    cf_df = _make_cf_df(
+        [
+            {
+                "date": "2026-01-01",
+                "portfolio": "FGI",
+                "cf_type": "BUY",
+                "amount_local": "-1000",
+                "amount_usd": "-1000",
+            }
+        ]
+    )
+    cf_df.to_csv(cf_path, index=False)
+
+    out_df = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=output_path,
+    )
+
+    span_days = 25
+    expected_nav_basis = (52000.0 / 51000.0) ** (365.0 / span_days) - 1.0
+    irr_if_only_cf = (52000.0 / 1000.0) ** (365.0 / span_days) - 1.0
+    irr_full = float(out_df.loc[1, "irr_annualized_full"])
+    assert irr_full == pytest.approx(expected_nav_basis, rel=1e-6)
+    assert irr_full != pytest.approx(irr_if_only_cf, rel=1e-2)

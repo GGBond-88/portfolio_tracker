@@ -121,6 +121,7 @@ Default `data_dir` is `data/` when you run `python pipeline.py`.
   - `portfolio_cash_flows.csv`.
 - **Output:**
   - `portfolio_returns.csv` (`data/portfolio_returns.csv`).
+  - Columns include `irr_annualized_full` (constant full-period IRR) and `irr_annualized_itd` (rolling ITD IRR with sparse solves + forward-fill). Day-0 IRR outflow uses `daily_net_cf_usd` when “large enough” vs NAV (`|CF| ≥ 50%` of `nav_usd`), otherwise `-nav_usd` (covers empty day-0 CF and small top-ups on an existing book).
 - **Consumed by:**
   - No subsequent tool in the repo reads this file → **terminal / BI / manual** (see §4).
 

@@ -271,14 +271,17 @@ Important columns:
 - `qtd_return`
 - `ytd_return`
 - `itd_return`
-- `irr_annualized`
+- `irr_annualized_full`
+- `irr_annualized_itd`
 
 Method notes:
 
 - daily TWR uses a modified-Dietz style sub-period formula with start-of-day cash flow handling
 - `daily_net_cf_usd` is summed by date from transaction-level cash flow rows
 - `itd_return` equals `cumulative_twr`
-- `irr_annualized` is full-period (inception-to-date) IRR solved from timed cash flows and annualized with `(1 + daily_irr)^365 - 1`
+- `irr_annualized_full` is a single full-sample annualized IRR (same value on every row), solved from timed cash flows and annualized with `(1 + daily_irr)^365 - 1`
+- `irr_annualized_itd` is a rolling inception-to-date IRR: recomputed on month-ends, Sundays, the second row, and the last row, with forward-fill between those dates; row 0 is NaN
+- IRR cash flows: NAV is booked as an inflow on the last date; the offset-0 outflow is `daily_net_cf_usd` on the first date when it is non-zero (investor perspective: BUY negative). If that day has no net flow (`0`), the solver uses `-nav_usd` on day 0 instead (existing portfolio with no day-0 contribution in the cash-flow file). If `|daily_net_cf_usd|` on day 0 is below half of `nav_usd` on that day (and NAV is positive), the solver still uses `-nav_usd` at offset 0 so a small top-up on an existing book does not dominate the IRR
 
 ### `data/fundamentals_snapshot.csv`
 

@@ -1,4 +1,4 @@
-"""Audit: IRR should vary by as-of date; documents current broadcast behavior."""
+"""Audit: full-period vs rolling ITD IRR behavior."""
 
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ def test_compute_annualized_irr_differs_for_day5_vs_day10_window() -> None:
     assert irr5 != pytest.approx(irr10, rel=1e-6)
 
 
-def test_build_portfolio_returns_broadcasts_single_irr_to_all_rows(tmp_path) -> None:
-    """Current behavior: one full-period IRR is written to every date row."""
+def test_build_portfolio_returns_full_irr_constant_itd_varies(tmp_path) -> None:
+    """Full-period IRR is constant; rolling ITD (sampled + ffill) takes more than one value."""
     nav_rows = []
     start = date(2026, 1, 1)
     for d in range(11):
@@ -70,6 +70,44 @@ def test_build_portfolio_returns_broadcasts_single_irr_to_all_rows(tmp_path) -> 
         scope="equity_sub",
     )
 
-    irr_col = pd.to_numeric(result["irr_annualized"], errors="coerce")
-    assert irr_col.nunique(dropna=True) == 1
+    full_col = pd.to_numeric(result["irr_annualized_full"], errors="coerce")
+    assert full_col.nunique(dropna=True) == 1
+    itd_col = pd.to_numeric(result["irr_annualized_itd"], errors="coerce")
+    assert itd_col.nunique(dropna=True) > 1
     assert len(result) == 11
+
+
+def test_build_portfolio_returns_itd_day5_differs_from_day10_linear_nav(tmp_path) -> None:
+    """Linear NAV from audit helper: ITD IRR at row 5 (ffill from first Sunday) != row 10."""
+    nav_rows = []
+    start = date(2026, 1, 1)
+    for d in range(11):
+        day = start + timedelta(days=d)
+        nav = 10_000.0 + (10_500.0 - 10_000.0) * (d / 10.0)
+        nav_rows.append(
+            {
+                "date": day.isoformat(),
+                "portfolio": "FGI",
+                "total_market_value_usd": str(nav),
+            }
+        )
+    nav_df = pd.DataFrame(nav_rows)
+    cf_df = pd.DataFrame(columns=["date", "portfolio", "amount_usd"])
+    nav_path = tmp_path / "nav.csv"
+    cf_path = tmp_path / "cf.csv"
+    out_path = tmp_path / "returns.csv"
+    nav_df.to_csv(nav_path, index=False)
+    cf_df.to_csv(cf_path, index=False)
+
+    result = build_portfolio_returns(
+        data_dir=tmp_path,
+        nav_path=nav_path,
+        cash_flows_path=cf_path,
+        output_path=out_path,
+        portfolio_filter="FGI",
+        scope="equity_sub",
+    )
+
+    irr5 = float(pd.to_numeric(result.loc[5, "irr_annualized_itd"], errors="coerce"))
+    irr10 = float(pd.to_numeric(result.loc[10, "irr_annualized_itd"], errors="coerce"))
+    assert irr5 != pytest.approx(irr10, rel=1e-6)

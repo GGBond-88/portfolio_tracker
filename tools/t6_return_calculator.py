@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 import math
 from pathlib import Path
@@ -25,7 +25,8 @@ _OUTPUT_COLUMNS = [
     "qtd_return",
     "ytd_return",
     "itd_return",
-    "irr_annualized",
+    "irr_annualized_full",
+    "irr_annualized_itd",
 ]
 
 _REQUIRED_NAV_COLUMNS = ["date", "portfolio", "total_market_value_usd"]
@@ -40,7 +41,7 @@ def build_portfolio_returns(
     portfolio_filter: str | None = "FGI",
     scope: str = "equity_sub",
 ) -> pd.DataFrame:
-    """Build daily portfolio return series with TWR and full-period annualized IRR."""
+    """Build daily portfolio return series with TWR, full-period IRR, and rolling ITD IRR."""
     _ = data_dir  # Keep interface consistent with other tools.
     if not nav_path.exists():
         raise FileNotFoundError(f"Portfolio NAV file not found: {nav_path}")
@@ -94,12 +95,17 @@ def build_portfolio_returns(
         period_key="y",
     )
 
-    annualized_irr = _compute_annualized_irr(
+    annualized_irr_full = _compute_annualized_irr(
         dates=returns_df["date"],
         nav_usd=returns_df["nav_usd"],
         daily_net_cf_usd=returns_df["daily_net_cf_usd"],
     )
-    returns_df["irr_annualized"] = annualized_irr
+    returns_df["irr_annualized_full"] = annualized_irr_full
+    returns_df["irr_annualized_itd"] = _compute_irr_annualized_itd(
+        dates=returns_df["date"],
+        nav_usd=returns_df["nav_usd"],
+        daily_net_cf_usd=returns_df["daily_net_cf_usd"],
+    )
 
     returns_df["date"] = returns_df["date"].map(lambda value: value.isoformat())
     returns_df = returns_df[_OUTPUT_COLUMNS].copy()
@@ -113,7 +119,7 @@ def build_portfolio_returns(
 
     LOGGER.info("Saved portfolio returns to %s", output_path)
     LOGGER.info("Portfolio returns rows: %s", len(returns_df))
-    if pd.isna(annualized_irr):
+    if pd.isna(annualized_irr_full):
         LOGGER.warning("Could not solve annualized IRR for the selected period.")
     return returns_df
 
@@ -199,7 +205,17 @@ def _compute_annualized_irr(
     nav_usd: pd.Series,
     daily_net_cf_usd: pd.Series,
 ) -> float:
-    """Compute full-period annualized IRR using daily-discounted cash flow timings."""
+    """Compute full-period annualized IRR using daily-discounted cash flow timings.
+
+    The cash flow at offset 0 is normally ``daily_net_cf_usd`` on the first date
+    (investor perspective: BUY negative). Exceptions:
+
+    - If that day has no net flow (0.0), use ``-nav_usd`` on day 0 (legacy /
+      existing book without a day-0 contribution row).
+    - If ``|daily_net_cf_usd[0]| < 0.5 * nav_usd[0]`` (and NAV is positive), treat
+      the day-0 flow as a top-up on an existing book and use ``-nav_usd`` at offset
+      0 instead, so IRR is not dominated by a small add-on versus full NAV.
+    """
     if len(dates) < 2:
         return float("nan")
     start_date = dates.iloc[0]
@@ -208,7 +224,14 @@ def _compute_annualized_irr(
         return float("nan")
 
     offset_to_cf: dict[int, float] = {}
-    offset_to_cf[0] = -float(nav_usd.iloc[0])
+    nav0 = float(nav_usd.iloc[0])
+    initial_cf = float(daily_net_cf_usd.iloc[0])
+    if initial_cf == 0.0:
+        offset_to_cf[0] = -nav0
+    elif nav0 > 0.0 and abs(initial_cf) < nav0 * 0.5:
+        offset_to_cf[0] = -nav0
+    else:
+        offset_to_cf[0] = initial_cf
     for idx in range(1, len(dates)):
         cf_value = float(daily_net_cf_usd.iloc[idx])
         if cf_value == 0.0:
@@ -255,6 +278,57 @@ def _compute_annualized_irr(
         LOGGER.warning("IRR solver did not converge for full period.")
         return float("nan")
     return (1.0 + daily_irr) ** 365 - 1.0
+
+
+def _is_calendar_month_end(d: date) -> bool:
+    """True if `d` is the last calendar day of its month."""
+    nxt = d + timedelta(days=1)
+    return nxt.month != d.month
+
+
+def _compute_irr_annualized_itd(
+    dates: pd.Series,
+    nav_usd: pd.Series,
+    daily_net_cf_usd: pd.Series,
+) -> pd.Series:
+    """Rolling inception-to-date annualized IRR with sparse solves and forward-fill.
+
+    IRR is recomputed only on month-ends, Sundays (calendar week-end), the second
+    row (index 1), and the final row; intermediate days carry the last solved value.
+    Row index 0 is always NaN.
+    """
+    n = len(dates)
+    if n == 0:
+        return pd.Series(dtype="float64")
+    out: list[float] = [float("nan")] * n
+    if n < 2:
+        return pd.Series(out, dtype="float64")
+
+    knot_indices: list[int] = []
+    for i in range(1, n):
+        d_i = dates.iloc[i]
+        if (
+            i == 1
+            or i == n - 1
+            or _is_calendar_month_end(d_i)
+            or d_i.weekday() == 6
+        ):
+            knot_indices.append(i)
+
+    irr_by_knot: dict[int, float] = {}
+    for i in knot_indices:
+        irr_by_knot[i] = _compute_annualized_irr(
+            dates=dates.iloc[: i + 1],
+            nav_usd=nav_usd.iloc[: i + 1],
+            daily_net_cf_usd=daily_net_cf_usd.iloc[: i + 1],
+        )
+
+    last = float("nan")
+    for i in range(1, n):
+        if i in irr_by_knot:
+            last = irr_by_knot[i]
+        out[i] = last
+    return pd.Series(out, dtype="float64")
 
 
 def _assert_required_columns(df: pd.DataFrame, required_columns: list[str], label: str) -> None:
